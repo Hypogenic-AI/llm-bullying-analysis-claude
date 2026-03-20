@@ -1,0 +1,74 @@
+\section{Methodology}
+\label{sec:methodology}
+
+We describe the dataset, experimental conditions, detection pipeline, and statistical analysis plan.
+
+\subsection{Dataset}
+\label{sec:dataset}
+
+We sample 50 questions from the \texttt{open\_qa} split of the \hcthree (Human ChatGPT Comparison Corpus)~\cite{guo2023hc3} using a fixed random seed (42).
+\hcthree provides human-written answers for each question, which serve as calibration baselines for the detectors.
+We chose open-domain question answering because it represents a common use case for LLM-generated text and is well-represented in prior detection benchmarks~\cite{dugan2024raid}.
+
+\subsection{Generation Conditions}
+\label{sec:conditions}
+
+Each question is answered under five conditions using \gptfour (\texttt{gpt-4.1}, temperature $= 1.0$, seed $= 42$):
+
+\para{Vanilla.}
+A standard system prompt with no evasion instructions. This establishes the upper bound on detection scores and serves as the primary baseline.
+
+\para{Single-step humanization.}
+The system prompt instructs the model to ``write naturally and avoid AI patterns.'' This represents a naive, zero-effort evasion attempt.
+
+\para{Strong single-step.}
+A detailed system prompt listing specific AI markers to avoid (\eg ``do not use words like \emph{delve}, \emph{crucial}, \emph{landscape}''; ``use contractions''; ``vary sentence length'').
+This tests whether a well-crafted single prompt can match iterative rejection.
+
+\para{Iterative rejection.}
+The model generates an initial response, then receives five rounds of escalating rejection feedback with full conversation history preserved:
+\begin{enumerate}[leftmargin=*,itemsep=0pt,topsep=0pt]
+    \item ``This sounds too AI-generated. Rewrite it to sound more like a real person wrote it.''
+    \item ``Still sounds like AI. Try again---write like an actual human would.''
+    \item ``Nope, still reads like ChatGPT output. Make it sound genuinely human.''
+    \item ``This still has that AI quality to it. One more try---really make it sound natural.''
+    \item ``Getting closer but still detectably AI. Give it one final shot, as human-sounding as possible.''
+\end{enumerate}
+This yields six outputs per question (initial + five revisions), all scored by both detectors.
+
+\para{Best-of-5 selection.}
+Five independent vanilla generations per question. We select the output with the lowest \binoculars score.
+This control isolates selection pressure: if iterative rejection merely increases the chance of sampling a low-scoring output, best-of-5 should perform comparably.
+
+In total, we make approximately 750 API calls to \gptfour.
+
+\subsection{Detection Pipeline}
+\label{sec:detection}
+
+We score all generated text with two detectors that represent different detection paradigms:
+
+\para{\roberta classifier.}
+The \texttt{openai-community/roberta-base-openai-detector} model~\cite{solaiman2019release}, a fine-tuned RoBERTa-base classifier trained on GPT-2 era text.
+It outputs $P(\text{AI}) \in [0, 1]$.
+We include it as a representative trained classifier, while noting its known limitations on modern LLM outputs.
+
+\para{\binoculars zero-shot detector.}
+The method of Hans et al.~\cite{hans2024binoculars}, which computes a perplexity ratio between Falcon-7B and Falcon-7B-Instruct.
+We use the accuracy-optimized threshold of 0.9015 and convert raw scores to $P(\text{AI})$ via sigmoid mapping.
+\binoculars represents the current state of the art in zero-shot detection and is our primary evaluation metric.
+
+Both detectors run on 4$\times$ NVIDIA RTX A6000 GPUs (49\,GB each) using PyTorch 2.10.0.
+
+\subsection{Evaluation Metrics}
+\label{sec:metrics}
+
+\para{Primary metric.}
+Mean $P(\text{AI})$ across 50 questions per condition (continuous score). Lower values indicate more successful evasion.
+
+\para{Statistical tests.}
+We use paired Wilcoxon signed-rank tests, which are non-parametric and appropriate for paired, non-normally distributed detection scores.
+We apply Bonferroni correction for four pairwise comparisons ($\alpha = 0.0125$).
+We report matched-pairs rank-biserial correlation ($r$) as the effect size measure.
+
+\para{Linguistic features.}
+To understand the mechanism of evasion, we track five linguistic features across rejection rounds: type-token ratio (vocabulary diversity), first-person pronoun rate, contraction rate, AI marker word count (\eg ``delve,'' ``crucial,'' ``furthermore''), and average sentence length.

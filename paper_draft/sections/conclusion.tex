@@ -1,0 +1,15 @@
+\section{Conclusion}
+\label{sec:conclusion}
+
+We studied the simplest possible evasion attack against AI text detectors: iteratively telling an LLM ``this sounds too AI-generated, try again.'' Using \gptfour on 50 open-domain questions scored by two detectors, we find that:
+
+\begin{enumerate}[leftmargin=*,itemsep=2pt,topsep=2pt]
+    \item \textbf{Iterative rejection works.} Five rounds of conversational rejection reduce \binoculars detection scores by 43\% ($p < 0.001$).
+    \item \textbf{It provides genuine steering, not just selection.} Iterative rejection significantly outperforms best-of-5 selection ($p < 0.001$, $r = 0.56$), confirming that the rejection context changes how the model generates, not just how many chances it gets.
+    \item \textbf{A well-crafted single prompt works even better.} A strong single-step prompt with specific anti-AI instructions achieves a 60\% reduction, approaching human text levels---suggesting that prompt specificity matters more than iteration.
+    \item \textbf{The mechanism is a regime shift.} The model does not suppress specific AI features; it switches to a distinct ``trying to sound human'' persona characterized by excessive first-person narration and higher vocabulary diversity, while AI marker words persist.
+\end{enumerate}
+
+These findings have immediate practical implications: detector-based enforcement is fragile against trivial attacks that require no technical expertise. For detector developers, robustness to persona shifts---not just vocabulary-level features---is essential. For alignment researchers, the regime shift phenomenon reveals that conversational context can qualitatively change LLM generation in ways that simple feature-level analysis may miss.
+
+Future work should replicate these findings across model families, test commercial detectors, vary the specificity of rejection feedback, and use probing analysis to directly measure internal regime shifts. The arms race between detection and evasion continues, but the barrier to effective evasion is lower than previously assumed.

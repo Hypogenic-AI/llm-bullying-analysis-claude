@@ -1,0 +1,9 @@
+\begin{abstract}
+AI text detectors are widely deployed in education, publishing, and hiring, yet their robustness to simple evasion strategies remains poorly understood.
+We investigate the simplest possible attack: iteratively telling a large language model ``this sounds too AI-generated, try again'' and measuring whether the resulting text evades detection.
+Using \gptfour to answer 50 open-domain questions under five conditions---vanilla generation, single-step humanization, strong single-step prompting, iterative rejection over five rounds, and best-of-5 selection---we score all outputs with two detectors: a \roberta-based classifier and \binoculars, a state-of-the-art zero-shot method.
+Iterative rejection reduces \binoculars detection scores by 43\% relative to vanilla generation ($p < 0.001$), and significantly outperforms best-of-5 selection ($p < 0.001$, $r = 0.56$), confirming that conversational rejection context provides genuine steering beyond selection pressure.
+However, a well-crafted single-step prompt with specific anti-AI instructions achieves even stronger evasion (60\% reduction), approaching human-level scores.
+Linguistic analysis reveals that iterative rejection triggers a regime shift---the model switches to an exaggerated casual persona with higher vocabulary diversity and excessive first-person narration---rather than precisely suppressing detectable features.
+These findings have implications for the trustworthiness of detector-based enforcement and suggest that LLMs harbor distinct generation modes activatable through simple conversational context.
+\end{abstract}

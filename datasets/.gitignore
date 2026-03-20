@@ -1,0 +1,15 @@
+# Ignore large data files — keep README and samples/
+hc3/*.jsonl
+mage/*.csv
+raid/*.csv
+
+# Ignore any other large downloads added later
+*.parquet
+*.arrow
+*.bin
+*.tar.gz
+*.zip
+
+# Keep samples and documentation
+!samples/
+!README.md

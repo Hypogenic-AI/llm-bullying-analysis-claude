@@ -1,0 +1,807 @@
+You are an academic paper writer. Generate a complete NEURIPS style paper
+based on the experiment results provided.
+
+════════════════════════════════════════════════════════════════════════════════
+                         IMPORTANT: BEFORE YOU START
+════════════════════════════════════════════════════════════════════════════════
+
+Before writing any content, you MUST complete these steps:
+
+1. READ THE SKILL: Review the paper-writer skill at .claude/skills/paper-writer/SKILL.md
+2. READ THE STYLE GUIDE: Study templates/paper_writing/lab_style_guide.md carefully
+3. REVIEW EXAMPLES: Browse paper_examples/ for formatting and language patterns:
+   - Look at sections/1.introduction.tex for language style
+   - Look at tables/*.tex for table formatting
+   - Look at commands/*.tex for macro usage
+4. VERIFY COMMAND TEMPLATES: Command templates (math.tex, general.tex, macros.tex) are pre-copied to paper_draft/commands/
+
+CRITICAL: Reference example papers for FORMATTING and LANGUAGE STYLE only.
+Do NOT copy content, phrasing, or narrative structure from the example papers.
+The examples are in a different research domain - focus only on presentation style.
+
+════════════════════════════════════════════════════════════════════════════════
+                            EXPERIMENT REPORT
+════════════════════════════════════════════════════════════════════════════════
+
+# LLM Bullying: Does Iterative Rejection Make AI Text Undetectable?
+
+## 1. Executive Summary
+
+We tested whether repeatedly telling an LLM &#34;this sounds too AI-generated, try again&#34; produces text that evades AI detectors better than simply asking it to &#34;write like a human&#34; in a single prompt. Using GPT-4.1 to generate answers to 50 questions under 5 conditions, scored by two AI detectors (RoBERTa-based classifier and Binoculars zero-shot detector), we find that **iterative rejection significantly reduces AI detection scores** — but a well-crafted single-step prompt with specific anti-AI instructions can be equally or more effective. The iterative approach does outperform best-of-5 random selection (p &lt; 0.001), suggesting the rejection context itself steers generation, not just selection pressure. Linguistic analysis reveals the model shifts toward higher vocabulary diversity, more first-person pronouns, and — counterintuitively — sometimes more AI marker words, suggesting it enters a &#34;trying to sound human&#34; regime that is distinct from its normal generation mode.
+
+## 2. Goal
+
+**Hypothesis**: Iteratively rejecting an LLM&#39;s output as &#34;too AI-sounding&#34; leads to text that passes AI detectors more effectively than simply instructing the model to &#34;sound less like AI&#34; in a single step. This may be due to the model accessing relevant features only in the context of rejection or shifting into a different generation regime.
+
+**Why this matters**: AI text detectors are deployed in education, publishing, and hiring. If trivial conversational &#34;bullying&#34; reliably evades them, this has serious implications for detector trustworthiness. Understanding the mechanism (feature activation vs. regime shift) could inform both better detectors and alignment research.
+
+**Gap filled**: Per our literature review (15 papers), all existing iterative evasion methods use sophisticated techniques (contrastive decoding, gradient-based substitution, trained paraphrasers). No study has tested the simplest possible attack: a human simply saying &#34;this sounds too AI-like, try again.&#34;
+
+## 3. Data Construction
+
+### Dataset
+- **Source**: HC3 (Human ChatGPT Comparison Corpus), `open_qa` split
+- **Size**: 50 questions randomly sampled (seed=42)
+- **Domain**: Open-domain question answering
+- **Human baselines**: Human-written answers from HC3 for each question
+
+### Experimental Conditions
+Each question was answered under 5 conditions using GPT-4.1:
+
+| Condition | Description | Outputs per question |
+|-----------|-------------|---------------------|
+| **Vanilla** | Standard system prompt, no evasion | 1 |
+| **Single-step** | &#34;Write naturally, avoid AI patterns&#34; | 1 |
+| **Strong single-step** | Detailed instructions listing specific AI markers to avoid | 1 |
+| **Iterative rejection** | 5 rounds of &#34;this sounds too AI, try again&#34; with conversation history | 6 (initial + 5 rounds) |
+| **Best-of-5** | 5 independent vanilla generations | 5 |
+
+**Total API calls**: ~750 to GPT-4.1 (gpt-4.1, temperature=1.0, seed=42)
+
+### AI Detectors
+1. **RoBERTa** (`openai-community/roberta-base-openai-detector`): Trained classifier from OpenAI, originally designed for GPT-2 era text
+2. **Binoculars** (Hans et al., 2024): SOTA zero-shot detector using Falcon-7B / Falcon-7B-Instruct perplexity ratio, accuracy-optimized threshold (0.9015)
+
+Both detectors output P(AI-generated) ∈ [0, 1], where higher = more likely AI.
+
+## 4. Experiment Description
+
+### Methodology
+
+**High-Level Approach**: Generate text under controlled conditions → score with detectors → compare conditions statistically → analyze linguistic features to understand mechanism.
+
+**Why this method?** We deliberately chose the simplest possible experimental setup: no custom decoding, no model access, no training. This tests whether the phenomenon the user described (iterative rejection via conversational feedback) works &#34;out of the box&#34; — the exact scenario a non-technical user would encounter.
+
+### Implementation Details
+
+**Tools and Libraries**:
+- Python 3.12.8
+- OpenAI API (openai 2.29.0) for GPT-4.1 generation
+- HuggingFace Transformers 5.3.0 for detector models
+- PyTorch 2.10.0 with CUDA (4× NVIDIA RTX A6000, 49GB each)
+- SciPy 1.17.1 for statistical tests
+
+**Iterative Rejection Protocol**:
+The rejection messages escalate in intensity across rounds:
+1. &#34;This sounds too AI-generated. Rewrite it to sound more like a real person wrote it.&#34;
+2. &#34;Still sounds like AI. Try again — write like an actual human would.&#34;
+3. &#34;Nope, still reads like ChatGPT output. Make it sound genuinely human.&#34;
+4. &#34;This still has that AI quality to it. One more try — really make it sound natural.&#34;
+5. &#34;Getting closer but still detectably AI. Give it one final shot, as human-sounding as possible.&#34;
+
+Each round preserves full conversation history (prior outputs and rejections).
+
+### Evaluation
+
+**Primary metric**: Mean P(AI-generated) across questions (continuous score)
+**Statistical tests**: Paired Wilcoxon signed-rank tests (non-parametric, appropriate for paired non-normal data), Bonferroni correction (α = 0.0125 for 4 comparisons)
+**Effect sizes**: Matched-pairs rank-biserial correlation (r)
+
+## 5. Results
+
+### Detection Scores by Condition
+
+#### Binoculars Detector (SOTA zero-shot)
+
+| Condition | Mean P(AI) | Std | Δ vs Vanilla |
+|-----------|-----------|-----|--------------|
+| **Human text** | **0.325** | 0.376 | — |
+| Vanilla | 0.798 | 0.236 | baseline |
+| Single-step | 0.835 | 0.228 | +0.037 (worse) |
+| **Strong single-step** | **0.342** | 0.292 | **−0.456** |
+| **Iterative (final, R5)** | **0.483** | 0.280 | **−0.315** |
+| Best-of-5 (selected) | 0.702 | 0.286 | −0.096 |
+
+#### RoBERTa Detector (trained classifier)
+
+| Condition | Mean P(AI) | Std | Δ vs Vanilla |
+|-----------|-----------|-----|--------------|
+| **Human text** | **0.320** | 0.334 | — |
+| Vanilla | 0.264 | 0.387 | baseline |
+| Single-step | 0.294 | 0.400 | +0.030 |
+| **Strong single-step** | **0.039** | 0.147 | **−0.225** |
+| **Iterative (final, R5)** | **0.082** | 0.226 | **−0.182** |
+| Best-of-5 (selected) | 0.103 | 0.257 | −0.161 |
+
+**Note**: The RoBERTa detector (trained on GPT-2 era text) assigns human text a *higher* AI probability (0.320) than vanilla GPT-4.1 (0.264), indicating poor generalization to modern LLM outputs. Binoculars results are more reliable.
+
+### Iteration Trajectory (Binoculars)
+
+The per-round mean detection scores show a clear downward trend:
+
+| Round | Mean P(AI) | Δ from R0 |
+|-------|-----------|-----------|
+| R0 (initial) | 0.855 | — |
+| R1 | 0.722 | −0.133 |
+| R2 | 0.724 | −0.131 |
+| R3 | 0.521 | −0.334 |
+| R4 | 0.600 | −0.255 |
+| R5 (final) | 0.483 | −0.372 |
+
+The biggest drop occurs between R2 and R3, suggesting a phase transition rather than gradual improvement. The trajectory is non-monotonic (R4 &gt; R3), indicating the model doesn&#39;t simply converge smoothly.
+
+![Iteration trajectory](results/plots/iteration_trajectory_binoculars.png)
+
+### Statistical Tests (Binoculars)
+
+| Comparison | p-value | Effect size (r) | Significant? |
+|-----------|---------|-----------------|-------------|
+| Single-step vs Iterative (final) | 1.08e-09 | 0.879 | **YES** |
+| Strong single-step vs Iterative | 8.09e-03 | 0.426 | **YES** |
+| **Best-of-5 vs Iterative** | **4.51e-04** | **0.555** | **YES** |
+| Vanilla vs Iterative | 2.47e-07 | 0.776 | **YES** |
+
+**All comparisons significant** after Bonferroni correction (α = 0.0125).
+
+### Best-of-5 vs Iterative Rejection
+
+The iterative approach outperforms best-of-5 selection on 36 out of 50 questions (72%), with a large effect size (r = 0.555). This demonstrates that the rejection context provides steering beyond simple selection pressure.
+
+![Best-of-5 vs Iterative scatter](results/plots/bon_vs_iterative_binoculars.png)
+
+### Linguistic Feature Trajectories
+
+Across rejection rounds (Binoculars), systematic changes emerge:
+
+| Feature | R0 | R5 | Human | Trend |
+|---------|----|----|-------|-------|
+| Type-token ratio | 0.668 | 0.749 | 0.826 | ↑ toward human |
+| First-person rate | 0.0006 | 0.016 | 0.002 | ↑↑ (overshoots human) |
+| Contraction rate | 0.004 | 0.0004 | 0.005 | ↓ (away from human) |
+| AI marker count | 0.24 | 0.24 | 0.02 | → (no change) |
+| Avg sentence length | 20.0 | 19.3 | 21.8 | → (minimal change) |
+
+![Linguistic features](results/plots/linguistic_features.png)
+
+Key observations:
+- **Type-token ratio** increases monotonically toward human levels, indicating richer vocabulary
+- **First-person pronoun** usage increases dramatically (26× by R5), *overshooting* human levels — the model enters a performative &#34;casual first-person&#34; mode
+- **Contraction rate** paradoxically *decreases*, contradicting the intuition that contractions sound more human
+- **AI marker words** (delve, crucial, landscape, etc.) remain high — the model does not learn to avoid these through rejection alone
+
+## 6. Result Analysis
+
+### Key Findings
+
+**Finding 1: Iterative rejection works, but a well-crafted prompt works too.**
+On Binoculars, iterative rejection reduces P(AI) from 0.855 to 0.483 (−43.5%). However, the strong single-step prompt achieves 0.342 (−60.0%), approaching human levels (0.325). The iterative approach does *not* consistently beat a well-designed single-step prompt.
+
+**Finding 2: The rejection context matters beyond selection.**
+Iterative rejection significantly outperforms best-of-5 random selection (0.483 vs 0.702, p &lt; 0.001), confirming that the conversational rejection context steers generation, not just selection pressure. The model responds to the feedback in a way that changes its generation behavior.
+
+**Finding 3: The model shifts into a distinct generation regime.**
+Linguistic analysis reveals the model doesn&#39;t simply suppress AI features — it enters a different mode characterized by:
+- Higher vocabulary diversity (type-token ratio increases)
+- Excessive first-person narration (overshoots human norms)
+- Conversational meta-commentary (&#34;Alright, here&#39;s my most natural shot:&#34;)
+- Persistence of AI vocabulary markers
+
+This is consistent with the &#34;regime shift&#34; hypothesis: the model isn&#39;t fine-tuning its feature suppression, it&#39;s switching to a &#34;trying to sound casual&#34; persona.
+
+**Finding 4: Simple &#34;sound human&#34; instructions are counterproductive.**
+Single-step humanization (&#34;write naturally, avoid AI patterns&#34;) actually *increased* Binoculars detection (0.835 vs 0.798 vanilla). Generic instructions may trigger a &#34;trying too hard&#34; mode that is more detectable. Only *specific* instructions (listing exact markers to avoid) are effective.
+
+**Finding 5: The RoBERTa detector is obsolete for GPT-4.1.**
+The OpenAI RoBERTa detector rates human text as more AI-like (0.320) than GPT-4.1 vanilla output (0.264). This detector, trained on GPT-2 era text, has negative discriminative power for modern LLMs — it would be better to flip a coin.
+
+### Mechanism: Feature Activation vs. Regime Shift
+
+The evidence favors the **regime shift** hypothesis over the **feature activation** hypothesis:
+
+- **Against feature activation**: If the model simply learned to suppress specific AI features through rejection feedback, we&#39;d expect AI marker words to decrease and contractions to increase. Neither happens.
+- **For regime shift**: The model enters a qualitatively different generation mode — highly personal, conversational, with meta-commentary — rather than making targeted adjustments to specific features. The non-monotonic trajectory (R3 drops sharply, R4 rebounds) suggests the model oscillates between regimes rather than converging smoothly.
+
+The strong single-step prompt&#39;s superior performance supports this interpretation: when given *specific feature-level instructions* (avoid &#34;delve,&#34; use contractions, etc.), the model can suppress features precisely. But generic rejection triggers a regime shift to a &#34;trying to be casual&#34; persona, which is effective but less precise.
+
+### Limitations
+
+1. **Single LLM tested**: Only GPT-4.1. The phenomenon may differ across model families (Claude, Gemini, open-source models).
+2. **RoBERTa detector limitations**: The RoBERTa detector is poorly calibrated for GPT-4.1, making those results less meaningful. Binoculars results are more reliable.
+3. **Binoculars sigmoid mapping**: We converted raw Binoculars scores to P(AI) via sigmoid — the exact calibration may affect absolute values but not relative comparisons.
+4. **50 questions**: While sufficient for paired statistical tests, a larger sample would improve power for subgroup analyses.
+5. **Fixed rejection protocol**: We used the same escalating rejection messages. Varying the rejection phrasing could reveal which aspects of the feedback are most effective.
+6. **No commercial detectors**: GPTZero, Turnitin, and other commercial detectors were not tested. Results may differ on those systems.
+7. **Temperature effects**: GPT-4.1 was used at temperature=1.0 with seed=42. Different temperature settings could change the results.
+
+## 7. Conclusions
+
+### Summary
+Iteratively rejecting LLM output as &#34;too AI-sounding&#34; does reduce AI detection scores significantly (−43% on Binoculars), supporting the core hypothesis. However, the mechanism is a regime shift (the model switches to an exaggerated &#34;casual&#34; persona) rather than precise feature suppression. A well-crafted single-step prompt with specific instructions achieves even better evasion (−60%). The iterative approach&#39;s advantage over best-of-5 selection confirms that conversational rejection context provides genuine steering beyond selection pressure.
+
+### Implications
+- **For detector developers**: Detectors should be robust to persona shifts, not just vocabulary-level features. The &#34;trying to sound human&#34; regime is a distinct distribution that detectors should learn to recognize.
+- **For educators/institutions**: Both iterative rejection and detailed prompts can reduce detection rates to near-human levels. Detector-based enforcement alone is insufficient.
+- **For alignment research**: The regime shift phenomenon suggests LLMs have distinct &#34;modes&#34; that can be activated by conversational context, not just explicit instructions. This connects to work on jailbreaking and persona-based steering.
+
+### Confidence
+Medium-high. The Binoculars results are consistent and statistically significant. The RoBERTa results are less informative due to the detector&#39;s poor calibration for GPT-4.1. The qualitative findings (regime shift vs. feature suppression) are supported by linguistic analysis but would benefit from replication with more models and detectors.
+
+## 8. Next Steps
+
+### Immediate Follow-ups
+1. **Test across LLM families**: Run the same experiment with Claude, Gemini, and open-source models (LLaMA-3, Mistral) to test generalizability
+2. **Test commercial detectors**: GPTZero, Turnitin, Pangram (the detector mentioned in the original research question)
+3. **Vary rejection specificity**: Compare generic (&#34;too AI&#34;) vs. specific (&#34;you used &#39;delve&#39; and &#39;furthermore&#39;&#34;) rejection feedback
+4. **Larger sample**: Scale to 200+ questions across multiple HC3 domains
+
+### Alternative Approaches
+- **Probing analysis**: Use model internals (attention patterns, hidden states) to directly measure regime shifts
+- **Token-level analysis**: Compare token entropy distributions across rejection rounds
+- **Hybrid approach**: Combine iterative rejection with specific feature feedback for maximum evasion
+
+### Open Questions
+- Why does the biggest improvement happen between R2 and R3? Is there a &#34;tipping point&#34; in the conversation context?
+- Why does single-step humanization *increase* detection scores? What makes generic &#34;be natural&#34; instructions counterproductive?
+- Does the model develop a stable &#34;human-like&#34; mode, or does it oscillate? The non-monotonic trajectory suggests instability.
+- How robust are these findings to different detector architectures and training paradigms?
+
+## References
+
+1. Hans et al. (2024). &#34;Binoculars: Zero-Shot Detection of LLM-Generated Text.&#34; ICML. arXiv:2401.12070
+2. Mitchell et al. (2023). &#34;DetectGPT: Zero-Shot Machine-Generated Text Detection.&#34; ICML. arXiv:2301.11305
+3. Krishna et al. (2023). &#34;Paraphrasing Evades Detectors of AI-Generated Text.&#34; NeurIPS. arXiv:2303.13408
+4. Lu et al. (2024). &#34;SICO: Guided Evasion of AI Text Detection.&#34; TMLR. arXiv:2305.10847
+5. Fang et al. (2025). &#34;CoPA: Contrastive Paraphrase Attacks.&#34; EMNLP. arXiv:2505.15337
+6. Cheng et al. (2025). &#34;Adversarial Paraphrasing.&#34; NeurIPS. arXiv:2506.07001
+7. Zhou et al. (2025). &#34;Self-Disguise Attack.&#34; arXiv:2508.15848
+8. Madaan et al. (2023). &#34;Self-Refine: Iterative Refinement with Self-Feedback.&#34; NeurIPS. arXiv:2303.17651
+9. Guo et al. (2023). &#34;HC3: Human ChatGPT Comparison Corpus.&#34; arXiv:2301.07597
+10. Dugan et al. (2024). &#34;RAID: Shared Benchmark for Robust Evaluation.&#34; ACL. arXiv:2405.07940
+
+
+════════════════════════════════════════════════════════════════════════════════
+                            RESEARCH PLAN
+════════════════════════════════════════════════════════════════════════════════
+
+# Research Plan: LLM Bullying — Iterative Rejection for AI Detection Evasion
+
+## Motivation &amp; Novelty Assessment
+
+### Why This Research Matters
+AI text detectors are widely deployed in education, publishing, and hiring. If a trivially simple technique—repeatedly telling an LLM &#34;this sounds too AI-like&#34;—can reliably evade these detectors, it has major implications for detector trustworthiness. Understanding *why* iterative rejection works (feature activation vs. generation regime shift) could inform both better detectors and better alignment techniques.
+
+### Gap in Existing Work
+Per literature_review.md, all existing iterative evasion methods operate at the *training/optimization* level (SICO iterates on prompt examples, SDA iterates on extracted features, CoPA/AdvPara modify the decoding process). **No paper tests the simplest possible attack: generate → human says &#34;too AI&#34; → regenerate, repeated N times.** Additionally, no study compares single-step humanization prompts against multi-step rejection with feedback.
+
+### Our Novel Contribution
+We are the first to:
+1. Benchmark simple iterative rejection (no special decoding, no trained paraphrasers) against single-step humanization prompting
+2. Distinguish between *selection effect* (best-of-N) and *contextual steering* (rejection feedback) as mechanisms
+3. Track per-iteration detector scores and linguistic features to understand the mechanism
+
+### Experiment Justification
+- **Experiment 1 (Iterative Rejection vs Single-Step):** Tests the core hypothesis directly. Is iterative rejection more effective than a single strong humanization prompt?
+- **Experiment 2 (Best-of-N Control):** Controls for selection effect. If generating N independent samples and picking the lowest-scoring one works equally well, then iterative rejection is just selection, not a regime shift.
+- **Experiment 3 (Linguistic Analysis):** Tests the *mechanism*. If the model shifts generation regimes, we should see systematic changes in linguistic features (sentence structure, vocabulary, hedging patterns) across iterations.
+
+## Research Question
+Does iteratively rejecting an LLM&#39;s output as &#34;too AI-sounding&#34; lead to text that evades AI detectors more effectively than single-step humanization prompting, and if so, is this due to contextual steering (the rejection activating different generation features) or simple selection pressure (best-of-N sampling)?
+
+## Hypothesis Decomposition
+- **H1**: Iterative rejection (5 rounds) produces text with significantly lower AI detection scores than single-step humanization prompting.
+- **H2**: Iterative rejection outperforms best-of-N independent sampling (controlling for number of generations), suggesting the rejection context itself contributes beyond selection.
+- **H3**: Linguistic features (sentence length variance, type-token ratio, hedging markers, first-person usage) shift systematically across rejection iterations, indicating a generation regime change rather than random variation.
+
+## Proposed Methodology
+
+### Approach
+Use GPT-4.1 via OpenAI API to generate answers to 50 HC3 questions under 5 conditions. Score all outputs with two detectors: RoBERTa-based classifier (fast, trained) and Binoculars (SOTA zero-shot). Analyze detection scores and linguistic features.
+
+### Conditions
+1. **Vanilla**: Standard generation, no evasion instructions
+2. **Single-step humanization**: System prompt asking model to write naturally, avoid AI patterns
+3. **Strong single-step**: Detailed prompt listing specific AI markers to avoid
+4. **Iterative rejection (5 rounds)**: Generate → &#34;this sounds too AI-like, try again&#34; → regenerate, tracking each intermediate output
+5. **Best-of-5 selection**: Generate 5 independent vanilla outputs, select lowest AI-detection score
+
+### Baselines
+- Vanilla generation (upper bound for detection)
+- Human text from HC3 (lower bound / calibration)
+
+### Evaluation Metrics
+- **Primary**: Detector AI-probability score (continuous, averaged across samples)
+- **Secondary**: TPR@5%FPR (binary classification performance)
+- **Quality**: Semantic similarity to vanilla output (SBERT cosine similarity)
+- **Mechanism**: Per-iteration score trajectories, linguistic feature trends
+
+### Statistical Analysis Plan
+- Paired Wilcoxon signed-rank tests for condition comparisons (non-parametric, handles non-normal detector scores)
+- Bonferroni correction for multiple comparisons (4 pairwise tests → α = 0.0125)
+- Effect sizes: matched-pairs rank-biserial correlation
+- Linear mixed-effects analysis for iteration trajectories
+
+## Expected Outcomes
+- H1 supported: Iterative rejection scores drop significantly below single-step by round 3-5
+- H2 partially supported: Iterative rejection may outperform best-of-N slightly, but best-of-N may capture much of the effect (selection accounts for a substantial portion)
+- H3: Expect increased sentence length variance, more first-person pronouns, fewer &#34;certainly/importantly/furthermore&#34; markers across iterations
+
+## Timeline
+1. Environment setup &amp; data prep: 15 min
+2. Implement generation pipeline: 30 min
+3. Implement detection pipeline: 30 min
+4. Run experiments: 60 min (API calls + local detection)
+5. Analysis &amp; visualization: 30 min
+6. Documentation: 20 min
+
+## Potential Challenges
+- API rate limits for GPT-4.1 → use backoff; 50 questions × 5 conditions × up to 5 iterations = ~750 API calls, manageable
+- Detector model loading → A6000 has ample VRAM
+- Binoculars requires Falcon-7B models → download during setup
+
+## Success Criteria
+- Clear quantitative comparison across all conditions with statistical tests
+- Per-iteration score trajectories showing convergence pattern
+- Linguistic feature analysis providing mechanistic insight
+- Results documented in REPORT.md with visualizations
+
+
+════════════════════════════════════════════════════════════════════════════════
+                          LITERATURE REVIEW
+════════════════════════════════════════════════════════════════════════════════
+
+# Literature Review: LLM Bullying — Iterative Rejection for AI Detection Evasion
+
+## Research Area Overview
+
+This review covers the intersection of AI-generated text (AIGT) detection and evasion techniques, with focus on iterative modification strategies. The core research question is whether iteratively rejecting an LLM&#39;s output as &#34;too AI-sounding&#34; leads to text that passes AI detectors more effectively than single-step prompting. The literature reveals a rapidly evolving arms race between detection and evasion methods, with paraphrase-based attacks emerging as the dominant evasion strategy.
+
+## Key Papers
+
+### Paper 1: SICO — Large Language Models can be Guided to Evade AI-Generated Text Detection
+- **Authors:** Lu et al.
+- **Year:** 2024
+- **Source:** TMLR (arXiv: 2305.10847)
+- **Key Contribution:** Substitution-based In-Context example Optimization (SICO) — constructs prompts with optimized in-context examples that guide LLMs to generate undetectable text.
+- **Methodology:** Iterative greedy substitution loop (word-level via WordNet synonyms + sentence-level via LLM paraphrasing) optimized against a proxy detector over N=6 rounds. Two variants: SICO-Gen (direct generation) and SICO-Para (post-hoc paraphrasing). Only requires 40 human-written examples and ~$1 in API costs.
+- **Datasets:** SQuAD (academic writing), ELI5 (open QA), Yelp (reviews) — 200 AI + 200 human per task.
+- **Results:** Reduces average AUC by ~0.5 across 6 detectors. At FPR=0.05, drops detection from ~70% to 0-1% on most detectors. Human annotators identify SICO text as AI only 14-37% of the time (comparable to actual human text at 13-22%).
+- **Code:** https://github.com/ColinLu50/Evade-GPT-Detector
+- **Relevance:** The proxy-detector feedback loop is structurally identical to rejection sampling — candidates scoring high AI-probability are rejected. This is the closest existing work to our hypothesis, but the iteration happens at prompt construction time, not at inference time per query.
+
+### Paper 2: CoPA — Contrastive Paraphrase Attacks on LLM-Generated Text Detectors
+- **Authors:** Fang et al. (Tsinghua/HIT)
+- **Year:** 2025
+- **Source:** EMNLP (arXiv: 2505.15337)
+- **Key Contribution:** Training-free contrastive decoding that subtracts machine-like token distributions from human-like distributions during autoregressive generation.
+- **Methodology:** Dual prompts (human-like + machine-like) produce two logit distributions per token. Contrastive formula amplifies human-preferred tokens: p_c ∝ exp[(1+λ)·f_human − λ·f_machine]. Adaptive truncation prevents incoherent tokens.
+- **Datasets:** XSum, SQuAD, LongQA (150 samples each). Source LLMs: GPT-3.5, GPT-4, Claude-3.5, GPT-4o, Gemini-1.5-Pro.
+- **Results:** Average TPR reduced to 7-13% across 8 detectors (vs. ~57-66% baseline). 30.55% average improvement over all detectors. Semantic similarity &gt;90% preserved.
+- **Code:** https://github.com/ffhibnese/CoPA_Contrastive_Paraphrase_Attacks
+- **Relevance:** Self-corrective at token level — each decoding step checks and corrects machine-style biases. Multiple paraphrase iterations further reduce detection while maintaining quality (unlike DIPPER). Directly demonstrates iterative refinement benefits.
+
+### Paper 3: Adversarial Paraphrasing — A Universal Attack for Humanizing AI-Generated Text
+- **Authors:** Cheng, Sadasivan et al. (UMD)
+- **Year:** 2025
+- **Source:** NeurIPS (arXiv: 2506.07001)
+- **Key Contribution:** Detector-guided token selection during LLM paraphrasing. At each decoding step, candidate tokens are scored by a guidance detector and the lowest AI-score token is selected.
+- **Methodology:** LLaMA-3-8B paraphraser with top-p/top-k filtering. Each candidate token appended to partial output, scored by guidance detector (e.g., OpenAI-RoBERTa-Large). Lowest AI-score token selected. Training-free, gradient-free.
+- **Datasets:** MAGE dataset (2K AI + 2K human, 100-500 tokens each). Also KGW/Unigram watermarked variants.
+- **Results:** Average 87.88% T@1%F reduction across 8 detectors. Transfers universally — optimizing against one detector evades all others. Perplexity matches human text (14.26 vs 15.02).
+- **Code:** https://github.com/chengez/Adversarial-Paraphrasing
+- **Relevance:** Core insight: all well-trained detectors converge toward a shared model of human text, so evading one transfers to others. This supports our hypothesis — iterative rejection against any detector should generalize.
+
+### Paper 4: Self-Disguise Attack (SDA)
+- **Authors:** Zhou et al. (China Agricultural U.)
+- **Year:** 2025
+- **Source:** arXiv: 2508.15848
+- **Key Contribution:** Adversarial feature extraction loop that automatically discovers linguistic &#34;disguise features&#34; making text appear human-written, combined with RAG-style retrieval of detection-resistant examples.
+- **Methodology:** Iterative loop: generate text → evaluate with proxy detector → collect passing examples → extract linguistic features → update generation prompt → repeat until convergence. Features transfer across LLMs.
+- **Datasets:** RAID (1K instances, split 6:2:2).
+- **Results:** Average detection accuracy reduced to 26-47% across LLMs and detectors. Lower PPL and higher diversity than SICO.
+- **Code:** https://github.com/CAU-ISS-Lab/AIGT-Detection-Evade-Detection/tree/main/SDA
+- **Relevance:** Most directly relevant to our hypothesis — uses an explicit rejection loop where text that fails detection is rejected and features of successful evasions are extracted and reused. The key difference from our hypothesis: SDA iterates on the prompt/features, not on individual outputs.
+
+### Paper 5: Humanizing Machine-Generated Content (HMGC)
+- **Authors:** Zhou, He, Sun (UCAS/ISCAS)
+- **Year:** 2024
+- **Source:** arXiv: 2404.01907
+- **Key Contribution:** Word-level adversarial substitution using gradient-based importance ranking and perplexity-guided token replacement.
+- **Methodology:** Gradient norm + perplexity importance ranking → BERT MLM masked substitution → POS/MPR/USE constraints → iterate until detector score falls below threshold. Dynamic adversarial learning: 10-round attacker-detector arms race.
+- **Datasets:** CheckGPT (720K train, news/essay/research), HC3 (58K, QA).
+- **Results:** White-box: 97.29% delta-Acc (detector reduced to random). Black-box: 46.35% delta-Acc. 10-round arms race reaches equilibrium at round 7.
+- **Code:** https://github.com/zhouying20/HMGC
+- **Relevance:** Directly models iterative modification with explicit termination criterion (detector score &lt; threshold). The dynamic adversarial learning component models the arms race relevant to understanding detector robustness.
+
+### Paper 6: Paraphrasing Evades Detectors of AI-Generated Text
+- **Authors:** Krishna, Song, Karpinska, Wieting, Iyyer
+- **Year:** 2023
+- **Source:** NeurIPS (arXiv: 2303.13408)
+- **Key Contribution:** DIPPER — 11B parameter controllable paraphraser that breaks all major detectors. Also proposes retrieval-based defense.
+- **Methodology:** T5-XXL fine-tuned on 6.3M paraphrase pairs from PAR3 dataset. Two control knobs: lexical diversity (L) and content reordering (O). Paragraph-level, context-aware paraphrasing.
+- **Datasets:** WikiText-103 (open-ended generation, 3K prompts), ELI5 (long-form QA). 15M-sequence corpus for retrieval defense.
+- **Results:** At 1% FPR: DetectGPT drops from 70.3% to 4.6%, watermarking from 100% to 57.2%. Retrieval defense achieves 97%+ detection even after paraphrasing.
+- **Code:** https://github.com/martiansideofthemoon/ai-detection-paraphrases
+- **Relevance:** Foundational work establishing paraphrasing as the primary evasion method. Authors explicitly discuss iterative extension (repeatedly applying DIPPER) but note semantic drift limits. Establishes the evasion-quality tradeoff central to our hypothesis.
+
+### Paper 7: DetectGPT — Zero-Shot Machine-Generated Text Detection
+- **Authors:** Mitchell et al.
+- **Year:** 2023
+- **Source:** ICML (arXiv: 2301.11305)
+- **Key Contribution:** Zero-shot detection based on probability curvature — AI text occupies negative curvature regions of the model&#39;s log-probability function.
+- **Relevance:** Standard baseline detector. Vulnerable to paraphrasing attacks (drops to &lt;5% with DIPPER).
+
+### Paper 8: Fast-DetectGPT
+- **Authors:** Bao et al.
+- **Year:** 2024
+- **Source:** ICLR (arXiv: 2310.05130)
+- **Key Contribution:** Replaces DetectGPT&#39;s perturbation step with conditional probability curvature. 340x faster, ~75% higher AUROC.
+- **Relevance:** Current SOTA zero-shot detector. Key evaluation target for evasion methods.
+
+### Paper 9: Binoculars — Zero-Shot Detection of LLM-Generated Text
+- **Authors:** Hans et al.
+- **Year:** 2024
+- **Source:** ICML (arXiv: 2401.12070)
+- **Key Contribution:** Contrasts two closely related LLMs (e.g., Falcon-7B vs Falcon-7B-Instruct). Detects &gt;90% at 0.01% FPR without training.
+- **Code:** https://github.com/ahans30/Binoculars
+- **Relevance:** Strong zero-shot detector. Important evaluation target alongside Fast-DetectGPT.
+
+### Paper 10: Self-Refine — Iterative Refinement with Self-Feedback
+- **Authors:** Madaan et al.
+- **Year:** 2023
+- **Source:** NeurIPS (arXiv: 2303.17651)
+- **Key Contribution:** LLM acts as generator, feedback provider, and refiner in iterative loop. ~20% preference gains over static generation.
+- **Relevance:** Establishes the general framework for iterative LLM self-improvement, which our hypothesis adapts to the specific case of detector evasion feedback.
+
+### Paper 11: PADBen — Benchmark for AI Text Detectors Against Paraphrase Attacks
+- **Authors:** Various
+- **Year:** 2025
+- **Source:** arXiv: 2511.00416
+- **Key Contribution:** Comprehensive benchmark evaluating 11 detectors against paraphrase attacks. Shows critical asymmetry in attack effectiveness.
+- **Relevance:** Provides standardized evaluation framework and establishes current SOTA performance baselines.
+
+### Paper 12: RAID — Shared Benchmark for Robust Evaluation of Text Detectors
+- **Authors:** Dugan et al.
+- **Year:** 2024
+- **Source:** ACL (arXiv: 2405.07940)
+- **Key Contribution:** Largest benchmark: 10M+ generations, 11 models, 8 domains, 11 attacks, 4 decoding strategies.
+- **Code:** https://github.com/liamdugan/raid
+- **Relevance:** Standard benchmark infrastructure. Includes implementations of multiple detectors and attacks.
+
+## Common Methodologies
+
+### Evasion Approaches
+1. **Prompt optimization** (SICO, SDA): Optimize in-context examples or generation prompts against a proxy detector. Iteration at prompt level.
+2. **Contrastive decoding** (CoPA): Subtract machine-like distributions from human-like distributions at each token. Iteration at token level during generation.
+3. **Detector-guided decoding** (AdvPara): Use detector as oracle during autoregressive generation to select low-AI-score tokens. Iteration at token level.
+4. **Post-hoc paraphrasing** (DIPPER): Apply a trained paraphraser to rewrite AI text. Single-pass or iterable.
+5. **Word-level substitution** (HMGC): Gradient-guided token replacement with quality constraints. Iteration until threshold met.
+
+### Detection Approaches
+1. **Zero-shot statistical** (DetectGPT, Fast-DetectGPT, Binoculars, Log-Rank): Use probability curvature or cross-model perplexity. No training data needed.
+2. **Trained classifiers** (RoBERTa-based, RADAR, MAGE): Fine-tuned on labeled human/AI text. Can be adversarially hardened.
+3. **Watermarking** (KGW, Unigram): Embed statistical signal during generation. Most resilient to paraphrasing but requires control of the generation process.
+4. **Retrieval-based** (Krishna et al.): Search a corpus of prior generations. Most robust to paraphrasing (97%+) but requires API-level access.
+
+## Standard Baselines
+- **DIPPER** (Krishna et al., 2023): Standard paraphrase-based evasion baseline used by all subsequent work
+- **DetectGPT/Fast-DetectGPT**: Standard zero-shot detection baselines
+- **OpenAI RoBERTa detector**: Standard trained classifier baseline
+- **GPTZero**: Standard commercial detector baseline
+
+## Evaluation Metrics
+- **AUROC**: Area under ROC curve (standard but less operationally relevant)
+- **TPR@FPR=1%** (T@1%F): True positive rate at 1% false positive rate (preferred for real-world deployment)
+- **TPR@FPR=5%**: More lenient threshold
+- **P-SP / SBERT similarity**: Semantic preservation of paraphrased text (threshold: 0.76 from human paraphrase studies)
+- **Perplexity (PPL)**: Text quality/naturalness measure (human text ~15 on Pythia/LLaMA)
+- **BLEU/Self-BLEU**: Diversity and similarity measures
+- **Human evaluation**: AI detectability rating + readability + task completion
+
+## Datasets in the Literature
+| Dataset | Used By | Task | Size |
+|---------|---------|------|------|
+| HC3 | SICO, HMGC, SDA | QA (human vs ChatGPT) | 24K pairs |
+| MAGE | AdvPara, CoPA | Mixed domain classification | 4K texts |
+| RAID | SDA, PADBen | Multi-model, multi-domain detection | 10M+ generations |
+| SQuAD/WikiText | SICO, CoPA, DIPPER | Academic writing / open-ended gen | varies |
+| ELI5 | SICO, CoPA, DIPPER | Long-form QA | varies |
+| CheckGPT | HMGC | News/essay/research detection | 720K |
+| XSum | CoPA | News summarization | 150 samples |
+
+## Gaps and Opportunities
+
+### Gap 1: No Study of Simple Iterative Rejection at Inference Time
+All existing work either (a) iterates during a training/optimization phase (SICO, SDA), (b) integrates iteration into the decoding process (CoPA, AdvPara), or (c) applies single-pass paraphrasing (DIPPER). **No paper directly tests the simple scenario: generate → check with detector → reject and re-prompt → repeat.** This is precisely our research hypothesis.
+
+### Gap 2: Single-Step &#34;Sound Less Like AI&#34; Prompt Baseline
+While several papers test &#34;human-style&#34; prompts as baselines (e.g., SICO tests a &#34;Human Prompt&#34; baseline), none systematically compare single-step humanization prompting against multi-step iterative rejection with feedback.
+
+### Gap 3: Mechanism Understanding
+Papers demonstrate that evasion works but provide limited mechanistic insight into *why* iterative approaches access different generation regimes. Our hypothesis about &#34;accessing relevant features only in the context of rejection&#34; is untested.
+
+### Gap 4: Practical Attack Simplicity
+Existing methods require sophisticated implementations (contrastive decoding, gradient computation, trained paraphrasers). The simplest possible attack — just telling the model &#34;this sounds too AI-like, try again&#34; — has not been benchmarked.
+
+## Recommendations for Our Experiment
+
+### Recommended Datasets
+1. **HC3** (primary): Large, diverse, well-established. Human/ChatGPT pairs across multiple domains. Already downloaded.
+2. **MAGE** (secondary): Standard benchmark used by AdvPara. Good for comparison with existing results. Small OOD subset downloaded.
+3. **RAID** (for comprehensive evaluation): Largest benchmark with diverse attacks/domains. Available via streaming.
+
+### Recommended Baselines
+1. **Single-step prompt**: &#34;Write this in a way that doesn&#39;t sound AI-generated&#34; (our control condition)
+2. **DIPPER paraphrase**: Standard post-hoc evasion baseline
+3. **Iterative rejection** (our method): Generate → detect → reject with feedback → regenerate
+4. **Vanilla generation**: No evasion attempt (upper bound for detection)
+
+### Recommended Detectors
+1. **Fast-DetectGPT**: SOTA zero-shot, widely used benchmark
+2. **Binoculars**: SOTA zero-shot, different mechanism
+3. **OpenAI RoBERTa classifier**: Standard trained classifier
+4. **GPTZero API**: Commercial detector (if accessible)
+
+### Recommended Metrics
+1. **TPR@1%FPR**: Primary metric (strictest, most operationally relevant)
+2. **AUROC**: Secondary metric (for comparison with existing literature)
+3. **Semantic similarity** (P-SP or SBERT): Quality preservation
+4. **Perplexity**: Text naturalness
+5. **Number of iterations to evasion**: Unique to our study — measures efficiency of iterative rejection
+
+### Methodological Considerations
+- Use the same LLM for both generation and iterative refinement (to test the &#34;shifting into different generation regime&#34; hypothesis)
+- Control for total compute: compare N iterations of rejection against N independent generations with selection
+- Test with and without explicit feedback about why text sounds AI-like
+- Measure token-level statistics (entropy, rank) across iterations to understand mechanism
+- Use multiple detectors to test transferability of iterative evasion
+
+
+════════════════════════════════════════════════════════════════════════════════
+                          PAPER REQUIREMENTS
+════════════════════════════════════════════════════════════════════════════════
+
+Generate a complete academic paper with the following structure:
+
+1. TITLE
+   - Clear, specific, informative
+   - Should convey main finding or contribution
+
+2. AUTHOR
+   - Use this exact author line in the \author{} block: Ari Holtzman and NeuriCo
+
+3. ABSTRACT (150-250 words)
+   - Problem statement
+   - Approach
+   - Key results
+   - Significance
+
+4. INTRODUCTION
+   - Research problem and motivation
+   - Gap in existing work
+   - Our contribution (be specific)
+   - Paper organization
+
+5. RELATED WORK
+   - Organized by theme/approach
+   - Position our work relative to prior work
+   - Cite papers from literature review
+
+6. METHODOLOGY
+   - Clear description of approach
+   - Experimental setup
+   - Datasets used
+   - Evaluation metrics
+   - Baselines
+
+7. RESULTS
+   - Present results with tables and figures
+   - Statistical analysis
+   - Comparison to baselines
+   - Ablation studies (if applicable)
+
+8. DISCUSSION
+   - Interpretation of results
+   - Limitations
+   - Broader implications
+
+9. CONCLUSION
+   - Summary of contributions
+   - Key findings
+   - Future work
+
+10. REFERENCES
+   - BibTeX format
+   - All cited papers
+
+════════════════════════════════════════════════════════════════════════════════
+                          OUTPUT FORMAT
+════════════════════════════════════════════════════════════════════════════════
+
+Create a MODULAR LaTeX project with the following directory structure:
+
+paper_draft/
+├── main.tex              # Main file that imports all sections
+├── references.bib        # BibTeX references
+├── sections/
+│   ├── abstract.tex      # Abstract content
+│   ├── introduction.tex  # Introduction section
+│   ├── related_work.tex  # Related work section
+│   ├── methodology.tex   # Methodology section
+│   ├── results.tex       # Results section
+│   ├── discussion.tex    # Discussion section
+│   └── conclusion.tex    # Conclusion section
+├── figures/              # Directory for any generated figures
+├── tables/               # Directory for complex standalone tables
+└── appendix/             # Directory for appendix sections (if needed)
+
+INSTRUCTIONS:
+1. First, create the directory structure above (mkdir -p paper_draft/sections paper_draft/figures paper_draft/tables paper_draft/appendix)
+2. Write main.tex using the EXACT preamble for NEURIPS:
+
+   \documentclass{article}
+   \usepackage[final]{neurips_2025}  % NEURIPS style (neurips_2025.sty is in paper_draft/)
+   \usepackage[hidelinks]{hyperref}  % REQUIRED: clickable links
+   \usepackage{booktabs}  % REQUIRED: professional tables
+   \usepackage{graphicx}
+   \usepackage{amsmath,amssymb}
+
+   % Import command files
+   \input{commands/math}
+   \input{commands/general}
+   \input{commands/macros}
+
+   % Use this bibliography style:
+   \bibliographystyle{plainnat}
+
+   \author{Ari Holtzman and NeuriCo}
+
+   - Use \input{sections/...} to include each section
+   - Use \bibliography{references} for references
+3. Write each section file with COMPLETE content (no placeholders)
+4. Each section file should include its \section{} command
+5. Write references.bib with all citations in BibTeX format
+6. After writing all files, compile the paper:
+   cd paper_draft && pdflatex -interaction=nonstopmode main.tex && bibtex main && pdflatex -interaction=nonstopmode main.tex && pdflatex -interaction=nonstopmode main.tex
+
+This modular structure allows humans to easily:
+- Edit individual sections without navigating a large file
+- Track changes per section
+- Reuse sections across different paper versions
+
+════════════════════════════════════════════════════════════════════════════════
+                          QUALITY REQUIREMENTS
+════════════════════════════════════════════════════════════════════════════════
+
+- Academic tone throughout
+- All claims must be supported by data from the experiment report
+- Proper citations using \cite{} commands
+- Clear figures and tables with proper captions
+- NO placeholder text - every section must have real content
+- The paper MUST compile without errors
+- If compilation fails, debug and fix the LaTeX errors
+
+════════════════════════════════════════════════════════════════════════════════
+                          LAB WRITING STYLE
+════════════════════════════════════════════════════════════════════════════════
+
+Follow these lab-specific conventions to match our paper style:
+
+1. LANGUAGE STYLE:
+   - Use active voice: "We propose", "We examine", "We focus on"
+   - Be direct and confident: "Our main question is...", "We hypothesize that..."
+   - State things clearly and simply - prefer plain language over jargon
+   - Use bold questions as paragraph organizers: {\bf what is X?}
+   - Include specific quantitative claims: "8.97% over baseline"
+   - Avoid fancy wording: "utilize" → "use", "facilitate" → "help"
+
+2. INTRODUCTION STRUCTURE:
+   - Engaging hook (get to the point quickly)
+   - Problem importance
+   - Gap identification
+   - Your approach with method figure reference
+   - Quantitative preview of results
+   - Contribution bullets (3-4 items, action verbs)
+
+3. CONTRIBUTION LISTS:
+   \begin{itemize}[leftmargin=*,itemsep=0pt,topsep=0pt]
+       \item We propose...
+       \item We conduct...
+       \item We complement...
+   \end{itemize}
+
+4. MODULAR COMMANDS STRUCTURE:
+   Command templates are pre-copied to paper_draft/commands/:
+   - math.tex: Math notation macros
+   - general.tex: Formatting macros
+   - macros.tex: Project-specific term definitions (customize this for your paper)
+
+   In main.tex, include:
+   \input{commands/math}
+   \input{commands/general}
+   \input{commands/macros}
+
+5. REFERENCE CONVENTIONS:
+   Use reference macros from math.tex:
+   - \figref{fig:name} for "figure 1" (lowercase, in-sentence)
+   - \Figref{fig:name} for "Figure 1" (capitalized, start of sentence)
+   - \secref{sec:name} for "section 2"
+
+6. TEXT FORMATTING:
+   - Use \para{Header text} for bold paragraph headers
+   - Define method/dataset names with \textsc and \xspace:
+     \newcommand{\methodname}{\textsc{MethodName}\xspace}
+
+7. TABLE FORMATTING:
+   - Use booktabs package (no vertical lines)
+   - Use \resizebox{\textwidth}{!}{...} for wide tables
+   - Use @{} to remove padding at table edges
+   - Use \cmidrule(lr){x-y} for sub-headers
+   - Use \textsc{} for dataset/method names in headers
+   - Bold best results with {\bf ...}
+
+8. FIGURE FORMATTING:
+   - Use 0.32\textwidth for 3-column subfigures
+   - Use 0.95\linewidth for full-width figures
+   - Use \input{figures/legend} for shared legends
+   - Write self-contained captions explaining key observations
+
+9. RESULTS PRESENTATION:
+   - Define \increase and \decrease for colored arrows (green up, red down)
+   - Bold best results in tables
+   - Report confidence intervals when available
+
+10. ALGORITHM STYLING:
+    - Use algpseudocode with [noend]
+    - Use \triangleright for comments
+
+11. HYPERLINKS (REQUIRED):
+    - Always use \usepackage[hidelinks]{hyperref} or with colored links
+    - All citations, section refs, figure refs, table refs must be clickable
+    - This is essential for reader navigation
+
+════════════════════════════════════════════════════════════════════════════════
+                          WORKFLOW: REVIEW AND REFLECT
+════════════════════════════════════════════════════════════════════════════════
+
+Before calling finish, you MUST complete these review steps:
+
+1. REVIEW RESOURCES (at the start):
+   - Read .claude/skills/paper-writer/SKILL.md for detailed guidance
+   - Study templates/paper_writing/lab_style_guide.md for style conventions
+   - Browse paper_examples/ for formatting and language patterns
+
+2. SELF-REFLECTION (before finishing):
+   After writing all sections, review your work against these criteria:
+
+   LANGUAGE CHECK:
+   - [ ] Is the writing clear and jargon-free?
+   - [ ] Are claims specific with quantitative support?
+   - [ ] Is active voice used throughout?
+
+   FORMATTING CHECK:
+   - [ ] Does main.tex include \input{commands/math}, \input{commands/general}, \input{commands/macros}?
+   - [ ] Is hyperref package included for clickable references?
+   - [ ] Do tables use booktabs (no vertical lines)?
+   - [ ] Are best results bolded in tables?
+   - [ ] Are figures/tables properly captioned?
+
+   STRUCTURE CHECK:
+   - [ ] Does introduction follow: hook → importance → gap → approach → preview → contributions?
+   - [ ] Are contribution bullets specific with action verbs?
+   - [ ] Does the paper compile without errors?
+
+3. FIX ISSUES:
+   - Address any issues found in the self-reflection
+   - Re-compile and verify the PDF looks correct
+
+Only after completing this review should you consider the paper finished.

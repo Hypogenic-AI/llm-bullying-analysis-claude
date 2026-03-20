@@ -1,0 +1,56 @@
+\section{Related Work}
+\label{sec:related_work}
+
+\para{AI-generated text detection.}
+Detection methods fall into three broad categories.
+\emph{Trained classifiers} fine-tune language models on labeled corpora of human and AI text. The OpenAI \roberta detector~\cite{solaiman2019release} is representative, though it was trained on GPT-2 era text and generalizes poorly to modern LLMs, as we confirm in our experiments.
+\emph{Zero-shot statistical methods} exploit distributional differences between human and machine text without training data.
+DetectGPT~\cite{mitchell2023detectgpt} measures probability curvature via perturbations; Fast-DetectGPT~\cite{bao2024fast} replaces perturbations with conditional probability curvature for a 340$\times$ speedup.
+\binoculars~\cite{hans2024binoculars} contrasts perplexity scores from two related models (\eg Falcon-7B and Falcon-7B-Instruct), achieving over 90\% detection at 0.01\% false positive rate.
+\emph{Watermarking methods}~\cite{kirchenbauer2023watermark} embed statistical signals during generation but require control of the generation process.
+We use both a trained classifier (\roberta) and a zero-shot method (\binoculars) to evaluate evasion across detection paradigms.
+
+\para{Evasion via paraphrasing.}
+Krishna et al.~\cite{krishna2023paraphrasing} showed that DIPPER, an 11B parameter T5-based paraphraser, breaks all major detectors at the time of publication, reducing DetectGPT's true positive rate from 70.3\% to 4.6\% at 1\% FPR.
+Subsequent work has refined paraphrase-based attacks.
+CoPA~\cite{fang2025copa} uses contrastive decoding, subtracting machine-like token distributions from human-like distributions during generation, reducing average TPR to 7--13\% across eight detectors.
+Adversarial Paraphrasing~\cite{cheng2025adversarial} uses detector-guided token selection during LLM decoding, achieving 87.9\% reduction in TPR@1\%FPR and demonstrating that evading one well-trained detector transfers to others.
+All of these methods require either custom decoding procedures, trained paraphrase models, or gradient-level access.
+
+\para{Iterative and optimization-based evasion.}
+Several methods employ iterative loops to improve evasion.
+SICO~\cite{lu2024sico} constructs optimized in-context examples through greedy substitution over six rounds against a proxy detector, reducing average AUC by 0.5 across six detectors.
+Self-Disguise Attack~\cite{zhou2025sda} uses an adversarial feature extraction loop that collects detection-resistant examples, extracts their linguistic features, and updates the generation prompt iteratively.
+HMGC~\cite{zhou2024hmgc} performs word-level adversarial substitution using gradient-based importance ranking, iterating until the detector score falls below a threshold.
+These approaches share the iterative structure of our method but differ in a critical way: they iterate on prompts, features, or tokens using automated optimization. We test whether iteration via simple natural language feedback---with no optimization or automation---achieves comparable results.
+
+\para{Self-refinement in LLMs.}
+Our work connects to the broader literature on LLM self-improvement.
+Self-Refine~\cite{madaan2023selfrefine} demonstrates that LLMs can iteratively improve their own outputs through self-generated feedback, achieving roughly 20\% preference gains.
+Our iterative rejection protocol is structurally similar---generate, receive feedback, regenerate---but the feedback is external (a human saying ``too AI'') rather than self-generated, and the optimization target is detector evasion rather than general quality.
+
+\para{Positioning our work.}
+\tabref{tab:positioning} summarizes how our approach differs from prior evasion methods. We are the first to study the simplest possible attack: a non-technical user iteratively rejecting outputs through normal conversation. Our best-of-$N$ control further distinguishes this from prior work by isolating contextual steering from selection pressure.
+
+\begin{table}[t]
+\centering
+\caption{Comparison of evasion methods. Our approach requires no technical expertise, custom decoding, or model access---only a standard chat interface. The best-of-$N$ control distinguishes steering from selection.}
+\label{tab:positioning}
+\small
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{@{}lccccc@{}}
+\toprule
+\textbf{Method} & \textbf{Iterative} & \textbf{Requires Training} & \textbf{Requires Decoding Access} & \textbf{Automated} & \textbf{User Skill} \\
+\midrule
+DIPPER~\cite{krishna2023paraphrasing} & No & Yes & No & Yes & High \\
+SICO~\cite{lu2024sico} & Yes & No & No & Yes & High \\
+CoPA~\cite{fang2025copa} & No & No & Yes & Yes & High \\
+AdvPara~\cite{cheng2025adversarial} & No & No & Yes & Yes & High \\
+SDA~\cite{zhou2025sda} & Yes & No & No & Yes & High \\
+HMGC~\cite{zhou2024hmgc} & Yes & No & Yes & Yes & High \\
+\midrule
+\textbf{Ours (Iterative Rejection)} & Yes & No & No & No & \textbf{None} \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}

@@ -1,0 +1,36 @@
+\section{Introduction}
+\label{sec:introduction}
+
+A student submits an essay. An instructor runs it through an AI detector, which flags it as machine-generated. The student protests: ``I just asked ChatGPT to rewrite it until it sounded natural.'' This scenario plays out daily across universities, publishers, and hiring platforms that rely on AI text detectors as gatekeepers. But how effective is this trivially simple strategy---just telling an LLM ``this sounds too AI, try again''---at actually evading detection?
+
+\para{Why this matters.}
+AI-generated text (AIGT) detectors are deployed at scale, with services like GPTZero, Turnitin's AI detection module, and open-source classifiers used to make consequential decisions about authorship.
+Prior work has demonstrated that sophisticated evasion techniques---contrastive decoding~\cite{fang2025copa}, detector-guided token selection~\cite{cheng2025adversarial}, and trained paraphrasers~\cite{krishna2023paraphrasing}---can reduce detection rates dramatically.
+Yet all these methods require technical expertise, model access, or custom tooling.
+The simplest attack vector---a non-technical user iteratively rejecting outputs through normal conversation---has never been systematically studied.
+
+\para{The gap.}
+Our literature review of 15 papers spanning AI text detection and evasion reveals a consistent pattern: every existing iterative evasion method operates at the training, optimization, or decoding level.
+SICO~\cite{lu2024sico} iterates on prompt examples against a proxy detector.
+Self-Disguise Attack~\cite{zhou2025sda} extracts linguistic features from successful evasions to update generation prompts.
+CoPA~\cite{fang2025copa} integrates contrastive corrections at each decoding step.
+No study tests the scenario that millions of users already practice: generating text, reading it, deciding it ``sounds too AI,'' and asking for a revision---all within a single chat session.
+
+\para{Our approach.}
+We design a controlled experiment that isolates the effect of iterative conversational rejection.
+Using \gptfour, we generate answers to 50 open-domain questions from the \hcthree corpus~\cite{guo2023hc3} under five conditions: vanilla generation, single-step humanization, strong single-step prompting with specific instructions, iterative rejection over five rounds with escalating feedback, and best-of-5 independent selection.
+We score all outputs with two complementary detectors: a \roberta-based trained classifier and \binoculars~\cite{hans2024binoculars}, a state-of-the-art zero-shot method.
+The best-of-5 control is critical: it distinguishes whether iterative rejection works through genuine contextual steering (the rejection feedback changes how the model generates) or through mere selection pressure (more samples means a better chance of a low-scoring output).
+
+\para{Preview of results.}
+Iterative rejection reduces \binoculars scores by 43\% (from 0.855 to 0.483), significantly outperforming best-of-5 selection (0.702, $p < 0.001$).
+This confirms that conversational rejection context steers generation beyond what selection alone achieves.
+However, a carefully crafted single-step prompt that lists specific AI markers to avoid achieves an even larger reduction of 60\% (to 0.342), approaching human text levels (0.325).
+Linguistic analysis reveals a surprising mechanism: rather than suppressing specific AI features, the model enters a distinct ``trying to sound human'' regime characterized by higher vocabulary diversity, excessive first-person narration, and persistent AI marker words---a regime shift rather than targeted feature suppression.
+
+We make the following contributions:
+\begin{itemize}[leftmargin=*,itemsep=0pt,topsep=0pt]
+    \item We present the first systematic evaluation of simple iterative conversational rejection as an AI text detection evasion strategy, requiring no technical expertise, model access, or custom tooling.
+    \item We introduce a best-of-$N$ control that disentangles contextual steering from selection pressure, showing that rejection feedback provides genuine generative steering ($p < 0.001$, $r = 0.56$).
+    \item We identify a regime-shift mechanism: iterative rejection triggers a qualitative change in generation mode rather than precise feature suppression, with implications for both detector design and alignment research.
+\end{itemize}
